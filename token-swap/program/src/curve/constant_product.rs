@@ -45,6 +45,22 @@ pub fn swap(
     })
 }
 
+/// Want some token out and calculate how much to put in
+pub fn swap_revert(
+    destination_amount: u128,
+    swap_source_amount: u128,
+    swap_destination_amount: u128,
+) -> Option<SwapWithoutFeesResult> {
+    let new_swap_destination_amount = swap_destination_amount.checked_sub(destination_amount)?;
+    let source_amount_swapped = destination_amount.checked_mul(swap_source_amount)?.checked_div(new_swap_destination_amount)?.checked_add(1)?;
+
+    Some(SwapWithoutFeesResult {
+        source_amount_swapped,
+        destination_amount_swapped:destination_amount,
+    })
+}
+
+
 /// Get the amount of trading tokens for the given amount of pool tokens,
 /// provided the total trading tokens and supply of pool tokens.
 ///
@@ -174,6 +190,8 @@ pub fn normalized_value(
 
 impl CurveCalculator for ConstantProductCurve {
     /// Constant product swap ensures x * y = constant
+    /// Test for SAMM: I did not use a different swap_without_fees function since it changes too many things.
+    /// source_amount is actually the destination amount in the swap function.
     fn swap_without_fees(
         &self,
         source_amount: u128,
@@ -181,7 +199,7 @@ impl CurveCalculator for ConstantProductCurve {
         swap_destination_amount: u128,
         _trade_direction: TradeDirection,
     ) -> Option<SwapWithoutFeesResult> {
-        swap(source_amount, swap_source_amount, swap_destination_amount)
+        swap_revert(source_amount, swap_source_amount, swap_destination_amount)
     }
 
     /// The constant product implementation is a simple ratio calculation for

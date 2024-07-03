@@ -42,6 +42,42 @@ pub struct Fees {
     pub host_fee_denominator: u64,
 }
 
+
+/// Helper function for calculating swap fee of SAMM
+pub fn calculate_fee_samm(
+    output_amount: u128,
+    output_reserve: u128,
+    input_reserve: u128,
+    fee_numerator: u128,
+    fee_denominator: u128,
+) -> Option<u128> {
+    if fee_numerator == 0 || output_amount == 0 {
+        Some(0)
+    } else {
+        // let tmp_amount = output_amount;
+        let max_fee_numerator = fee_numerator.checked_mul(5)?;
+        let tmp = output_amount.checked_mul(12)?.checked_mul(fee_denominator)?.checked_div(10)?.checked_div(output_reserve)?;
+        // reach the minimal fee
+        if tmp + fee_numerator > max_fee_numerator {
+            let fee = output_amount
+            .checked_mul(fee_numerator)?
+            .checked_mul(input_reserve)?
+            .checked_div(output_reserve)?
+            .checked_div(fee_denominator)?;
+            return Some(fee);
+        }
+        else {
+            let fee = output_amount
+            .checked_mul(max_fee_numerator - tmp)?
+            .checked_mul(input_reserve)?
+            .checked_div(output_reserve)?
+            .checked_div(fee_denominator)?;
+            return Some(fee);
+        }
+    }
+}
+
+
 /// Helper function for calculating swap fee
 pub fn calculate_fee(
     token_amount: u128,
@@ -113,6 +149,18 @@ impl Fees {
             u128::from(self.trade_fee_denominator),
         )
     }
+
+    /// Calculate the trading fee in trading tokens for SAMM
+    pub fn trading_fee_samm(&self, output_amount: u128, output_reserve: u128, input_reserve: u128) -> Option<u128> {
+        calculate_fee_samm(
+            output_amount,
+            output_reserve,
+            input_reserve,
+            u128::from(self.trade_fee_numerator),
+            u128::from(self.trade_fee_denominator),
+        )
+    }
+
 
     /// Calculate the owner trading fee in trading tokens
     pub fn owner_trading_fee(&self, trading_tokens: u128) -> Option<u128> {

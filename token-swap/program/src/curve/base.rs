@@ -67,6 +67,41 @@ pub struct SwapCurve {
 
 impl SwapCurve {
     /// Subtract fees and calculate how much destination token will be provided
+    /// given an amount of output token.
+    pub fn swap_samm(
+        &self,
+        output_amount: u128,
+        swap_source_amount: u128,
+        swap_destination_amount: u128,
+        trade_direction: TradeDirection,
+        fees: &Fees,
+    ) -> Option<SwapResult> {
+        // debit the fee to calculate the amount swapped
+        let trade_fee = fees.trading_fee_samm(output_amount,swap_destination_amount, swap_source_amount)?;
+        // let source_amount_less_fees = output_amount.checked_sub(total_fees)?;
+
+        let SwapWithoutFeesResult {
+            source_amount_swapped,
+            destination_amount_swapped,
+        } = self.calculator.swap_without_fees(
+            output_amount,
+            swap_source_amount,
+            swap_destination_amount,
+            trade_direction,
+        )?;
+
+        let source_amount_swapped = source_amount_swapped.checked_add(trade_fee)?;
+        Some(SwapResult {
+            new_swap_source_amount: swap_source_amount.checked_add(source_amount_swapped)?,
+            new_swap_destination_amount: swap_destination_amount
+                .checked_sub(destination_amount_swapped)?,
+            source_amount_swapped,
+            destination_amount_swapped,
+            trade_fee,
+            owner_fee:0,
+        })
+    }
+
     /// given an amount of source token.
     pub fn swap(
         &self,

@@ -378,6 +378,244 @@ impl Processor {
         Ok(())
     }
 
+    /// Processes an [Swap](enum.Instruction.html) for SAMM.
+    pub fn process_swap_samm(
+        program_id: &Pubkey,
+        amount_out: u64,
+        maximal_amount_in: u64,
+        accounts: &[AccountInfo],
+    ) -> ProgramResult {
+        let account_info_iter = &mut accounts.iter();
+        let swap_info = next_account_info(account_info_iter)?;
+        let authority_info = next_account_info(account_info_iter)?;
+        let user_transfer_authority_info = next_account_info(account_info_iter)?;
+        let source_info = next_account_info(account_info_iter)?;
+        let swap_source_info = next_account_info(account_info_iter)?;
+        let swap_destination_info = next_account_info(account_info_iter)?;
+        let destination_info = next_account_info(account_info_iter)?;
+        let pool_mint_info = next_account_info(account_info_iter)?;
+        let pool_fee_account_info = next_account_info(account_info_iter)?;
+        let source_token_mint_info = next_account_info(account_info_iter)?;
+        let destination_token_mint_info = next_account_info(account_info_iter)?;
+        let source_token_program_info = next_account_info(account_info_iter)?;
+        let destination_token_program_info = next_account_info(account_info_iter)?;
+        let pool_token_program_info = next_account_info(account_info_iter)?;
+
+        if swap_info.owner != program_id {
+            return Err(ProgramError::IncorrectProgramId);
+        }
+        let token_swap = SwapVersion::unpack(&swap_info.data.borrow())?;
+
+        if *authority_info.key
+            != Self::authority_id(program_id, swap_info.key, token_swap.bump_seed())?
+        {
+            return Err(SwapError::InvalidProgramAddress.into());
+        }
+        if !(*swap_source_info.key == *token_swap.token_a_account()
+            || *swap_source_info.key == *token_swap.token_b_account())
+        {
+            return Err(SwapError::IncorrectSwapAccount.into());
+        }
+        if !(*swap_destination_info.key == *token_swap.token_a_account()
+            || *swap_destination_info.key == *token_swap.token_b_account())
+        {
+            return Err(SwapError::IncorrectSwapAccount.into());
+        }
+        if *swap_source_info.key == *swap_destination_info.key {
+            return Err(SwapError::InvalidInput.into());
+        }
+        if swap_source_info.key == source_info.key {
+            return Err(SwapError::InvalidInput.into());
+        }
+        if swap_destination_info.key == destination_info.key {
+            return Err(SwapError::InvalidInput.into());
+        }
+        if *pool_mint_info.key != *token_swap.pool_mint() {
+            return Err(SwapError::IncorrectPoolMint.into());
+        }
+        if *pool_fee_account_info.key != *token_swap.pool_fee_account() {
+            return Err(SwapError::IncorrectFeeAccount.into());
+        }
+        if *pool_token_program_info.key != *token_swap.token_program_id() {
+            return Err(SwapError::IncorrectTokenProgramId.into());
+        }
+
+        let source_account =
+            Self::unpack_token_account(swap_source_info, token_swap.token_program_id())?;
+        let dest_account =
+            Self::unpack_token_account(swap_destination_info, token_swap.token_program_id())?;
+        let pool_mint = Self::unpack_mint(pool_mint_info, token_swap.token_program_id())?;
+
+        // Take transfer fees into account for actual amount transferred in
+        // let actual_amount_in = {
+        //     let source_mint_data = source_token_mint_info.data.borrow();
+        //     let source_mint = Self::unpack_mint_with_extensions(
+        //         &source_mint_data,
+        //         source_token_mint_info.owner,
+        //         token_swap.token_program_id(),
+        //     )?;
+
+        //     if let Ok(transfer_fee_config) = source_mint.get_extension::<TransferFeeConfig>() {
+        //         amount_in.saturating_sub(
+        //             transfer_fee_config
+        //                 .calculate_epoch_fee(Clock::get()?.epoch, amount_in)
+        //                 .ok_or(SwapError::FeeCalculationFailure)?,
+        //         )
+        //     } else {
+        //         amount_in
+        //     }
+        // };
+
+        // Calculate the trade amounts
+        let trade_direction = if *swap_source_info.key == *token_swap.token_a_account() {
+            TradeDirection::AtoB
+        } else {
+            TradeDirection::BtoA
+        };
+        let result = token_swap
+            .swap_curve()
+            .swap_samm(
+                u128::from(amount_out),
+                u128::from(source_account.amount),
+                u128::from(dest_account.amount),
+                trade_direction,
+                token_swap.fees(),
+            )
+            .ok_or(SwapError::ZeroTradingTokens)?;
+
+        // Re-calculate the source amount swapped based on what the curve says
+        let (source_transfer_amount, source_mint_decimals) = {
+            let source_amount_swapped = to_u64(result.source_amount_swapped)?;
+
+            let source_mint_data = source_token_mint_info.data.borrow();
+            let source_mint = Self::unpack_mint_with_extensions(
+                &source_mint_data,
+                source_token_mint_info.owner,
+                token_swap.token_program_id(),
+            )?;
+            let amount =
+                if let Ok(transfer_fee_config) = source_mint.get_extension::<TransferFeeConfig>() {
+                    source_amount_swapped.saturating_add(
+                        transfer_fee_config
+                            .calculate_inverse_epoch_fee(Clock::get()?.epoch, source_amount_swapped)
+                            .ok_or(SwapError::FeeCalculationFailure)?,
+                    )
+                } else {
+                    source_amount_swapped
+                };
+            if amount > maximal_amount_in {
+                return Err(SwapError::ExceededSlippage.into());
+            }
+            (amount, source_mint.base.decimals)
+        };
+
+        let (destination_transfer_amount, destination_mint_decimals) = {
+            let destination_mint_data = destination_token_mint_info.data.borrow();
+            let destination_mint = Self::unpack_mint_with_extensions(
+                &destination_mint_data,
+                source_token_mint_info.owner,
+                token_swap.token_program_id(),
+            )?;
+            let amount_out = to_u64(result.destination_amount_swapped)?;
+            (amount_out, destination_mint.base.decimals)
+        };
+
+        let (swap_token_a_amount, swap_token_b_amount) = match trade_direction {
+            TradeDirection::AtoB => (
+                result.new_swap_source_amount,
+                result.new_swap_destination_amount,
+            ),
+            TradeDirection::BtoA => (
+                result.new_swap_destination_amount,
+                result.new_swap_source_amount,
+            ),
+        };
+
+        Self::token_transfer(
+            swap_info.key,
+            source_token_program_info.clone(),
+            source_info.clone(),
+            source_token_mint_info.clone(),
+            swap_source_info.clone(),
+            user_transfer_authority_info.clone(),
+            token_swap.bump_seed(),
+            source_transfer_amount,
+            source_mint_decimals,
+        )?;
+
+        if result.owner_fee > 0 {
+            let mut pool_token_amount = token_swap
+                .swap_curve()
+                .calculator
+                .withdraw_single_token_type_exact_out(
+                    result.owner_fee,
+                    swap_token_a_amount,
+                    swap_token_b_amount,
+                    u128::from(pool_mint.supply),
+                    trade_direction,
+                    RoundDirection::Floor,
+                )
+                .ok_or(SwapError::FeeCalculationFailure)?;
+            // Allow error to fall through
+            if let Ok(host_fee_account_info) = next_account_info(account_info_iter) {
+                let host_fee_account = Self::unpack_token_account(
+                    host_fee_account_info,
+                    token_swap.token_program_id(),
+                )?;
+                if *pool_mint_info.key != host_fee_account.mint {
+                    return Err(SwapError::IncorrectPoolMint.into());
+                }
+                let host_fee = token_swap
+                    .fees()
+                    .host_fee(pool_token_amount)
+                    .ok_or(SwapError::FeeCalculationFailure)?;
+                if host_fee > 0 {
+                    pool_token_amount = pool_token_amount
+                        .checked_sub(host_fee)
+                        .ok_or(SwapError::FeeCalculationFailure)?;
+                    Self::token_mint_to(
+                        swap_info.key,
+                        pool_token_program_info.clone(),
+                        pool_mint_info.clone(),
+                        host_fee_account_info.clone(),
+                        authority_info.clone(),
+                        token_swap.bump_seed(),
+                        to_u64(host_fee)?,
+                    )?;
+                }
+            }
+            if token_swap
+                .check_pool_fee_info(pool_fee_account_info)
+                .is_ok()
+            {
+                Self::token_mint_to(
+                    swap_info.key,
+                    pool_token_program_info.clone(),
+                    pool_mint_info.clone(),
+                    pool_fee_account_info.clone(),
+                    authority_info.clone(),
+                    token_swap.bump_seed(),
+                    to_u64(pool_token_amount)?,
+                )?;
+            };
+        }
+
+        Self::token_transfer(
+            swap_info.key,
+            destination_token_program_info.clone(),
+            swap_destination_info.clone(),
+            destination_token_mint_info.clone(),
+            destination_info.clone(),
+            authority_info.clone(),
+            token_swap.bump_seed(),
+            destination_transfer_amount,
+            destination_mint_decimals,
+        )?;
+
+        Ok(())
+    }
+
+
     /// Processes an [Swap](enum.Instruction.html).
     pub fn process_swap(
         program_id: &Pubkey,
@@ -1188,7 +1426,7 @@ impl Processor {
                 minimum_amount_out,
             }) => {
                 msg!("Instruction: Swap");
-                Self::process_swap(program_id, amount_in, minimum_amount_out, accounts)
+                Self::process_swap_samm(program_id, amount_in, minimum_amount_out, accounts)
             }
             SwapInstruction::DepositAllTokenTypes(DepositAllTokenTypes {
                 pool_token_amount,
