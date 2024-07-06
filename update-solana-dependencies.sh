@@ -80,7 +80,6 @@ crates=(
   solana-udp-client
   solana-version
   solana-zk-token-sdk
-  solana-zk-sdk
 )
 
 set -x

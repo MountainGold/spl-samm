@@ -1304,9 +1304,9 @@ dependencies = [
 
 [[package]]
 name = "cpufeatures"
-version = "0.2.12"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53fe5e26ff1b7aef8bca9c6080520cfb8d9333c7568e1829cef191a9723e5504"
+checksum = "95059428f66df56b63431fdb4e1947ed2190586af5c5a8a8b71122bdf5a7f469"
 dependencies = [
  "libc",
 ]
@@ -7381,7 +7381,7 @@ dependencies = [
 
 [[package]]
 name = "spl-stake-pool"
-version = "2.0.0"
+version = "1.0.0"
 dependencies = [
  "arrayref",
  "assert_matches",
@@ -7409,7 +7409,7 @@ dependencies = [
 
 [[package]]
 name = "spl-stake-pool-cli"
-version = "2.0.0"
+version = "1.0.0"
 dependencies = [
  "bincode",
  "borsh 1.5.1",
@@ -7656,34 +7656,6 @@ dependencies = [
  "spl-token-group-interface 0.3.0",
  "spl-token-metadata-interface 0.4.0",
  "spl-type-length-value 0.5.0",
-]
-
-[[package]]
-name = "spl-token-confidential-transfer-proof-extraction"
-version = "0.1.0"
-dependencies = [
- "solana-zk-sdk",
- "thiserror",
-]
-
-[[package]]
-name = "spl-token-confidential-transfer-proof-generation"
-version = "0.1.0"
-dependencies = [
- "curve25519-dalek",
- "solana-zk-sdk",
- "thiserror",
-]
-
-[[package]]
-name = "spl-token-confidential-transfer-proof-test"
-version = "0.0.1"
-dependencies = [
- "curve25519-dalek",
- "solana-zk-sdk",
- "spl-token-confidential-transfer-proof-extraction",
- "spl-token-confidential-transfer-proof-generation",
- "thiserror",
 ]
 
 [[package]]
