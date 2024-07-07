@@ -79,6 +79,9 @@ impl SwapCurve {
         // debit the fee to calculate the amount swapped
         let trade_fee = fees.trading_fee_samm(output_amount,swap_destination_amount, swap_source_amount)?;
         // let source_amount_less_fees = output_amount.checked_sub(total_fees)?;
+        let owner_fee = fees.owner_trading_fee(output_amount)?;
+
+        let total_fees = trade_fee.checked_add(owner_fee)?;
 
         let SwapWithoutFeesResult {
             source_amount_swapped,
@@ -90,7 +93,7 @@ impl SwapCurve {
             trade_direction,
         )?;
 
-        let source_amount_swapped = source_amount_swapped.checked_add(trade_fee)?;
+        let source_amount_swapped = source_amount_swapped.checked_add(total_fees)?;
         Some(SwapResult {
             new_swap_source_amount: swap_source_amount.checked_add(source_amount_swapped)?,
             new_swap_destination_amount: swap_destination_amount
@@ -98,7 +101,7 @@ impl SwapCurve {
             source_amount_swapped,
             destination_amount_swapped,
             trade_fee,
-            owner_fee:0,
+            owner_fee,
         })
     }
 
