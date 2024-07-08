@@ -45,6 +45,7 @@ pub fn swap(
     })
 }
 
+
 /// Want some token out and calculate how much to put in
 pub fn swap_revert(
     destination_amount: u128,
@@ -52,8 +53,11 @@ pub fn swap_revert(
     swap_destination_amount: u128,
 ) -> Option<SwapWithoutFeesResult> {
     let new_swap_destination_amount = swap_destination_amount.checked_sub(destination_amount)?;
-    let source_amount_swapped = destination_amount.checked_mul(swap_source_amount)?.checked_div(new_swap_destination_amount)?.checked_add(1)?;
-
+    let tmp = destination_amount.checked_mul(swap_source_amount)?;
+    let mut source_amount_swapped = tmp.checked_div(new_swap_destination_amount)?;
+    if source_amount_swapped.checked_mul(new_swap_destination_amount)? != tmp {
+        source_amount_swapped = source_amount_swapped.checked_add(1)?;
+    }
     Some(SwapWithoutFeesResult {
         source_amount_swapped,
         destination_amount_swapped:destination_amount,
