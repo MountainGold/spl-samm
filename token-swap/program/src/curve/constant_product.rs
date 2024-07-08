@@ -52,15 +52,20 @@ pub fn swap_revert(
     swap_source_amount: u128,
     swap_destination_amount: u128,
 ) -> Option<SwapWithoutFeesResult> {
+    let invariant = swap_source_amount.checked_mul(swap_destination_amount)?;
     let new_swap_destination_amount = swap_destination_amount.checked_sub(destination_amount)?;
-    let tmp = destination_amount.checked_mul(swap_source_amount)?;
-    let mut source_amount_swapped = tmp.checked_div(new_swap_destination_amount)?;
-    if source_amount_swapped.checked_mul(new_swap_destination_amount)? != tmp {
-        source_amount_swapped = source_amount_swapped.checked_add(1)?;
+    let mut new_swap_source_amount = invariant.checked_div(new_swap_destination_amount)?;
+    if new_swap_source_amount.checked_mul(new_swap_destination_amount)? != invariant {
+        new_swap_source_amount = new_swap_source_amount.checked_add(1)?;
     }
+    let source_amount_swapped = new_swap_source_amount.checked_sub(swap_source_amount)?;
+
+    let destination_amount_swapped =
+        map_zero_to_none(swap_destination_amount.checked_sub(new_swap_destination_amount)?)?;
+
     Some(SwapWithoutFeesResult {
         source_amount_swapped,
-        destination_amount_swapped:destination_amount,
+        destination_amount_swapped,
     })
 }
 
