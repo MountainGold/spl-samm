@@ -1,3 +1,7 @@
+# Note for SAMM
+I modified the token-swap smart contracts to implement SAMM. See details in code comments.
+
+
 # Token Swap Program
 
 A Uniswap-like exchange for the Token program on the Solana blockchain.
